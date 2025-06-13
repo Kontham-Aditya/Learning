@@ -5,6 +5,8 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from scipy.spatial.transform import Rotation as R  # put this at the top of file
+
 
 class KITTIRawDataset(Dataset):
     def __init__(self, root_dir, transform=None):
@@ -41,20 +43,26 @@ class KITTIRawDataset(Dataset):
         point_cloud = torch.from_numpy(point_cloud).float()
 
         return {
-            "image": image,  # [C, H, W]
-            "point_cloud": point_cloud,  # [N, 4]
-            "calibration": self.calib
+            "image": image,
+            "point_cloud": point_cloud,
+            "calibration": torch.tensor(self.calib['6dof'], dtype=torch.float32)
         }
 
     def load_calib_file(self, calib_path):
         calib = {}
         with open(calib_path, 'r') as f:
-            for line in f.readlines():
+            for line in f:
                 if ':' not in line:
                     continue
                 key, value = line.strip().split(':', 1)
                 try:
                     calib[key] = np.array([float(x) for x in value.strip().split()])
                 except ValueError:
-                    continue  # Skip lines that can't be parsed
+                    continue
+
+        # Convert rotation matrix to rotation vector (3 values)
+        R_mat = calib['R'].reshape(3, 3)
+        T_vec = calib['T']
+        r = R.from_matrix(R_mat).as_rotvec()  # (rx, ry, rz)
+        calib['6dof'] = np.concatenate([r, T_vec])  # [rx, ry, rz, tx, ty, tz]
         return calib
